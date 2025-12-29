@@ -22,36 +22,41 @@ async function main() {
                 Looking forward to contributing to your team.
 
                 Thanks & Regards,
-                Surya Janardhan`; 
+                Surya Janardhan`;
 
   try {
     // Phase 1: Load unsent emails
-    const allUnsentEmails = loadUnsentEmails(filePath, openPassword, editPassword);
+    const allUnsentEmails = loadUnsentEmails(
+      filePath,
+      openPassword,
+      editPassword
+    );
     console.log(`Found ${allUnsentEmails.length} unsent emails`);
 
-    // Limit to 500 emails per run
-    const unsentEmails = allUnsentEmails.slice(0, 500);
+    // Take only first 50 unsent emails for this run
+    const unsentEmails = allUnsentEmails.slice(0, 50);
     console.log(`Processing ${unsentEmails.length} emails this run`);
 
-    // Phase 2: Prepare batches
-    const batches = prepareBatches(unsentEmails);
-    console.log(`Prepared ${batches.length} batches`);
-
-    // Process each batch
-    for (const batch of batches) {
-      console.log(`Processing batch of ${batch.length} emails`);
-
-      // Phase 3: Send emails
-      const sentEmails = await sendEmails(batch, subject, body, resumePath);
-
-      // Phase 4: Update sent status
-      updateSentStatus(filePath, sentEmails, editPassword);
-
-      // Optional: Delay between batches to avoid rate limits
-      await new Promise((resolve) => setTimeout(resolve, 1000)); // 1 second delay
+    if (unsentEmails.length === 0) {
+      console.log("No unsent emails found. All done!");
+      return;
     }
 
-    console.log("All batches processed");
+    // Phase 2: Prepare single batch of 50
+    const batches = prepareBatches(unsentEmails);
+    console.log(`Prepared ${batches.length} batch(es)`);
+
+    // Process only the first batch (should be only one batch of 50)
+    const batch = batches[0];
+    console.log(`Processing batch of ${batch.length} emails`);
+
+    // Phase 3: Send emails
+    const sentEmails = await sendEmails(batch, subject, body, resumePath);
+
+    // Phase 4: Update sent status immediately
+    updateSentStatus(filePath, sentEmails, editPassword);
+
+    console.log("Batch processed successfully");
   } catch (error) {
     console.error("Error:", error);
   }
