@@ -46,9 +46,13 @@ async function sendEmails(batch, subject, body, resumeLink) {
       from: process.env.EMAIL_USER,
       to: "chintalajanardhan2004@gmail.com",
       subject: `✅ Batch of ${allRecipients.length} mails sent successfully`,
-      text: `✅ Successfully sent ${allRecipients.length} emails to the following recipients:\n\n${allRecipients.join(
+      text: `✅ Successfully sent ${
+        allRecipients.length
+      } emails to the following recipients:\n\n${allRecipients.join(
         "\n"
-      )}\n\nTotal recipients: ${allRecipients.length}\n\nSubject used: ${subject}`,
+      )}\n\nTotal recipients: ${
+        allRecipients.length
+      }\n\nSubject used: ${subject}`,
     });
   } catch (error) {
     console.error(`Failed to send batch email:`, error);
