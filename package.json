@@ -15,6 +15,7 @@
     "dotenv": "^17.2.3",
     "exceljs": "^4.4.0",
     "googleapis": "^169.0.0",
+    "groq-sdk": "^0.37.0",
     "nodemailer": "^7.0.12",
     "xlsx": "^0.18.5",
     "xlsx-populate": "^1.21.0"

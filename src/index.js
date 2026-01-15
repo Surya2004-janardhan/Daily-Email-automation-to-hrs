@@ -2,10 +2,11 @@ const { loadUnsentEmails } = require("../scripts/phase1");
 const { prepareBatches } = require("../scripts/phase2");
 const { sendEmails } = require("../scripts/phase3");
 const { updateSentStatus } = require("../scripts/phase4");
-const path = require("path");
+const { generateEmailVariants } = require("../scripts/llm");
 
 async function main() {
-  const resumePath = path.join(__dirname, "..", "resume.pdf");
+  // Google Drive resume link instead of file attachment
+  const resumeLink = "https://drive.google.com/file/d/1-2yr3y-fTXrnwsjTgRgheEU-DdJ08TkG/view?usp=sharing";
 
   const sheetLink =
     "https://docs.google.com/spreadsheets/d/1bPYyC4wrnSfz8swLO2NGgMigfNo1cSwhhTgPud-5QLE/edit?gid=0#gid=0";
