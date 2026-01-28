@@ -26,9 +26,7 @@ jobs:
 
       - name: Create service account JSON file
         run: |
-          cat > seismic-rarity-468405-j1-cd12fe29c298.json << 'EOF'
-          ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          EOF
+          echo "${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}" > seismic-rarity-468405-j1-cd12fe29c298.json
 
       - name: List files in workspace
         run: ls -l
