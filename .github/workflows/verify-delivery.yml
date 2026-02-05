@@ -1,0 +1,55 @@
+name: Verify Email Delivery
+
+on:
+  # Run 25 minutes after daily email campaign (8:25 AM UTC)
+  schedule:
+    - cron: "25 8 * * *"
+
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  verify-delivery:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install additional dependencies for IMAP
+        run: npm install imap mailparser
+
+      - name: Create service account JSON file
+        run: |
+          cat > seismic-rarity-468405-j1-cd12fe29c298.json << 'EOF'
+          ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          EOF
+
+      - name: Create .env file
+        run: |
+          echo "EMAIL_USER=${{ secrets.EMAIL_USER }}" > .env
+          echo "EMAIL_PASS=${{ secrets.EMAIL_PASS }}" >> .env
+
+      - name: Wait for bounce notifications to arrive
+        run: |
+          echo "Waiting for any bounce notifications to arrive..."
+          echo "This allows time for mail servers to process and return bounces."
+
+      - name: Verify email delivery status
+        run: node scripts/phase5.js
+
+      - name: Commit and push any changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          git commit -m "Update error column after delivery verification" || echo "No changes to commit"
+          git push || echo "No changes to push"

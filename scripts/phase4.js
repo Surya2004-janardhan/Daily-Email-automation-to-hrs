@@ -16,17 +16,41 @@ async function updateSentStatus(sheetLink, sentEmails) {
       keyFile: path.join(
         __dirname,
         "..",
-        "seismic-rarity-468405-j1-cd12fe29c298.json"
+        "seismic-rarity-468405-j1-cd12fe29c298.json",
       ),
       scopes: ["https://www.googleapis.com/auth/spreadsheets"],
     });
 
     const sheets = google.sheets({ version: "v4", auth });
 
-    // First, read the current data to find rows to update
+    // First, ensure headers exist for error and sent_at columns
+    const headerResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "Sheet1!A1:D1",
+    });
+
+    const headers = headerResponse.data.values?.[0] || [];
+    const headerUpdates = [];
+
+    if (!headers[2] || headers[2] !== "error") {
+      headerUpdates.push({ range: "Sheet1!C1", values: [["error"]] });
+    }
+    if (!headers[3] || headers[3] !== "sent_at") {
+      headerUpdates.push({ range: "Sheet1!D1", values: [["sent_at"]] });
+    }
+
+    if (headerUpdates.length > 0) {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId,
+        resource: { data: headerUpdates, valueInputOption: "RAW" },
+      });
+      console.log("Added missing column headers (error, sent_at)");
+    }
+
+    // Read the current data to find rows to update
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "Sheet1!A:B",
+      range: "Sheet1!A:D",
     });
 
     const rows = response.data.values;
@@ -37,6 +61,7 @@ async function updateSentStatus(sheetLink, sentEmails) {
 
     const updates = [];
     let updatedCount = 0;
+    const timestamp = new Date().toISOString(); // Current timestamp
 
     // Prepare updates for sent emails
     for (let i = 1; i < rows.length; i++) {
@@ -47,8 +72,13 @@ async function updateSentStatus(sheetLink, sentEmails) {
         if (emailValue && sentEmails.includes(emailValue)) {
           // Update column B (sent_status) to "email sent"
           updates.push({
-            range: `Sheet1!B${i + 1}`, // Row i+1, Column B
+            range: `Sheet1!B${i + 1}`,
             values: [["email sent"]],
+          });
+          // Update column D (sent_at) with timestamp
+          updates.push({
+            range: `Sheet1!D${i + 1}`,
+            values: [[timestamp]],
           });
           updatedCount++;
         }
@@ -67,7 +97,7 @@ async function updateSentStatus(sheetLink, sentEmails) {
 
       await sheets.spreadsheets.values.batchUpdate(batchUpdateRequest);
       console.log(
-        `Successfully updated sent status for ${updatedCount} emails in Google Sheets`
+        `Successfully updated sent status for ${updatedCount} emails in Google Sheets`,
       );
     } else {
       console.log("No emails to update");
