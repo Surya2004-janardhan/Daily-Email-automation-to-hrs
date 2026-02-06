@@ -26,10 +26,14 @@ jobs:
         with:
           node-version: "18"
 
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@latest
+        with:
+          chrome-version: stable
+
       - name: Install Python dependencies
         run: |
-          cd inb
-          pip install -r requirements.txt
+          pip install selenium pandas openpyxl
 
       - name: Install Node dependencies
         run: npm install nodemailer
@@ -38,17 +42,25 @@ jobs:
         id: linkedin
         run: |
           cd inb
-          python linkedin_connect.py \
+          python linkedin_selenium.py \
             --email "ddrive600@gmail.com" \
             --password "${{ secrets.LINKEDIN_PASSWORD }}" \
-            --keyword "Software Engineer Recruiter" \
+            --excel "linkedin-data.xlsx" \
             --limit 20 \
             --message "Hi! I'm a motivated engineer seeking SDE/Full Stack/AI roles. I'd love to connect and explore opportunities. My resume: https://drive.google.com/file/d/14pEaC7-svetAUzXRZYsnM09cW3VzH2r2/view Thank you!" \
-            --nofollow \
-            --refresh-cookies 2>&1 | tee linkedin_output.txt
+            --headless 2>&1 | tee linkedin_output.txt
         env:
           LINKEDIN_PASSWORD: ${{ secrets.LINKEDIN_PASSWORD }}
         continue-on-error: true
+
+      - name: Commit updated Excel file
+        if: always()
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add inb/linkedin-data.xlsx
+          git commit -m "Update LinkedIn status after automation run" || echo "No changes to commit"
+          git push || echo "No changes to push"
 
       - name: Send SUCCESS notification email
         if: steps.linkedin.outcome == 'success'

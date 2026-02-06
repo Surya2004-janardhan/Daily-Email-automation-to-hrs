@@ -82,7 +82,7 @@ class CookieRepository(object):
     # We still need to check if the cookies have expired.
     for cookie in cookies_:
       if cookie.name == 'JSESSIONID' and cookie.value:
-        if cookie.expires and cookie.expires > time.time():
+        if cookie.expires and cookie.expires < time.time():
           raise linkedin_api_exceptions.LinkedInSessionExpiredException()
         break
     return cookies_

@@ -13,7 +13,7 @@ async function sendNotification() {
   // Read output log if exists
   let output = "No output captured";
   const outputPath = path.join(__dirname, "..", "inb", "linkedin_output.txt");
-  
+
   try {
     if (fs.existsSync(outputPath)) {
       output = fs.readFileSync(outputPath, "utf8");
@@ -99,7 +99,9 @@ This is an automated notification from your GetJob system.
       subject: subject,
       text: body,
     });
-    console.log(`✅ ${status.toUpperCase()} notification email sent to chintalajanardhan2004@gmail.com`);
+    console.log(
+      `✅ ${status.toUpperCase()} notification email sent to chintalajanardhan2004@gmail.com`,
+    );
   } catch (error) {
     console.error(`❌ Failed to send notification: ${error.message}`);
     process.exit(1);

@@ -336,7 +336,7 @@ class LinkedIn(object):
       public_id: Profile public id.
       urn_id:    Profile urn id.
     """
-    assert public_id is None and urn_id is None, (
+    assert public_id is not None or urn_id is not None, (
         'Expected any one of public_id or urn_id')
 
     result_ = self._fetch(
@@ -344,7 +344,11 @@ class LinkedIn(object):
 
     data_ = result_.json()
     if data_ and 'status' in data_ and data_['status'] != 200:
-      self._logger.info('Request failed: %s', data_['message'])
+      self._logger.info('Request failed: %s', data_.get('message', 'Unknown error'))
+      return {}
+    
+    if 'profile' not in data_:
+      self._logger.info('No profile data in response')
       return {}
 
     profile_ = data_['profile']
