@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-LinkedIn Outreach - Send connection requests with message (cold DM)
+LinkedIn Outreach - Send Direct Messages to connections
 Uses cookie-based auth for reliability. Get li_at cookie from browser.
-Safe daily limit: 25 connection requests with messages.
+Safe daily limit: 25 messages.
+Note: Can only DM people you're connected with or open profiles.
 """
 
 import os
@@ -18,11 +19,11 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
+import undetected_chromedriver as uc
 
 
 # ============== CONFIGURATION ==============
-DAILY_LIMIT = 25  # Safe limit for connection requests with messages
+DAILY_LIMIT = 25  # Safe limit for messages
 QUOTA_FILE = 'linkedin_quota.json'
 
 # Hardcoded resume link and message
@@ -116,40 +117,20 @@ def update_excel_status(excel_path, df, row_index, status, delivered=''):
 
 
 def setup_driver(headless=True):
-    """Set up Chrome WebDriver."""
-    options = Options()
+    """Set up undetected Chrome WebDriver to bypass bot detection."""
+    options = uc.ChromeOptions()
     if headless:
         options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
     options.add_argument('--window-size=1920,1080')
-    options.add_argument('--disable-blink-features=AutomationControlled')
-    options.add_argument('--ignore-certificate-errors')
-    options.add_argument('--ignore-ssl-errors')
-    options.add_argument('--disable-web-security')
     options.add_argument('--disable-extensions')
-    options.add_argument('--disable-software-rasterizer')
-    # Additional stability options
-    options.add_argument('--disable-features=VizDisplayCompositor')
-    options.add_argument('--disable-accelerated-2d-canvas')
-    options.add_argument('--disable-setuid-sandbox')
-    options.add_argument('--disable-infobars')
-    options.add_argument('--remote-debugging-port=9222')
-    options.add_argument('--log-level=3')  # Suppress most logs
-    options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-    options.add_experimental_option('excludeSwitches', ['enable-automation', 'enable-logging'])
-    options.add_experimental_option('useAutomationExtension', False)
-    options.add_experimental_option('prefs', {
-        'profile.default_content_setting_values.notifications': 2,
-        'credentials_enable_service': False,
-        'profile.password_manager_enabled': False
-    })
+    options.add_argument('--log-level=3')
     
-    driver = webdriver.Chrome(options=options)
-    driver.set_page_load_timeout(120)  # 2 minutes
+    driver = uc.Chrome(options=options, use_subprocess=True, version_main=140)
+    driver.set_page_load_timeout(120)
     driver.implicitly_wait(15)
-    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     return driver
 
 
@@ -225,8 +206,8 @@ def login_with_password(driver, email, password):
         return False
 
 
-def send_connection_with_message(driver, public_id, message, debug=False):
-    """Send connection request with a personalized message (cold DM)."""
+def send_direct_message(driver, public_id, message, debug=False):
+    """Send a direct message to a LinkedIn profile."""
     profile_url = f'https://www.linkedin.com/in/{public_id}/'
     
     try:
@@ -234,7 +215,7 @@ def send_connection_with_message(driver, public_id, message, debug=False):
     except Exception as e:
         return f'page_load_error: {str(e)[:50]}'
     
-    time.sleep(random.uniform(4, 6))  # Increased wait
+    time.sleep(random.uniform(4, 6))
     
     # DEBUG: Check page state
     if debug:
@@ -244,58 +225,48 @@ def send_connection_with_message(driver, public_id, message, debug=False):
     # Check if redirected to login or error
     if 'login' in driver.current_url or 'authwall' in driver.current_url:
         return 'session_expired'
-    if 'error' in driver.title.lower() or driver.title == '':
-        # Wait more and retry
-        time.sleep(3)
+    
+    # Check if page loaded properly
+    if driver.title in ['', 'www.linkedin.com', 'LinkedIn']:
+        if debug:
+            print(f"  [DEBUG] Page appears blocked, waiting...")
+        time.sleep(4)
         driver.refresh()
         time.sleep(4)
     
     # Scroll to load content
     try:
-        driver.execute_script("window.scrollBy(0, 300)")
+        driver.execute_script("window.scrollBy(0, 200)")
     except:
         pass
     time.sleep(1.5)
     
     try:
-        connect_button = None
-        
         # DEBUG: List all buttons on page
         if debug:
             all_btns = driver.find_elements(By.TAG_NAME, 'button')
             print(f"  [DEBUG] Found {len(all_btns)} buttons on page")
-            for btn in all_btns[:15]:  # First 15 buttons
+            for btn in all_btns[:12]:
                 txt = btn.text.strip().replace('\n', ' ')[:40]
                 aria = (btn.get_attribute('aria-label') or '')[:40]
                 print(f"    - Text: '{txt}' | Aria: '{aria}'")
         
-        # Check if already connected first
-        if driver.find_elements(By.XPATH, '//button[.//span[text()="Message"]]'):
-            return 'already_connected'
-        if driver.find_elements(By.XPATH, '//button[.//span[text()="Pending"]]'):
-            return 'pending'
+        # Find Message button
+        msg_button = None
         
-        # Method 1: Direct Connect button with aria-label containing "Invite"
-        buttons = driver.find_elements(By.XPATH, '//button[contains(@aria-label, "Invite")]')
+        # Method 1: Message button with span text
+        buttons = driver.find_elements(By.XPATH, '//button[.//span[text()="Message"]]')
         if buttons:
-            connect_button = buttons[0]
+            msg_button = buttons[0]
         
-        # Method 2: Connect button with span text
-        if not connect_button:
-            buttons = driver.find_elements(By.XPATH, '//button[.//span[text()="Connect"]]')
+        # Method 2: aria-label containing "message"
+        if not msg_button:
+            buttons = driver.find_elements(By.XPATH, '//button[contains(@aria-label, "message") or contains(@aria-label, "Message")]')
             if buttons:
-                connect_button = buttons[0]
+                msg_button = buttons[0]
         
-        # Method 3: Any button containing "Connect" text
-        if not connect_button:
-            buttons = driver.find_elements(By.XPATH, '//button[contains(., "Connect")]')
-            for btn in buttons:
-                if 'connect' in btn.text.lower():
-                    connect_button = btn
-                    break
-        
-        # Method 4: Check More menu dropdown
-        if not connect_button:
+        # Method 3: Check More menu for Message option
+        if not msg_button:
             more_buttons = driver.find_elements(By.XPATH, '//button[contains(@aria-label, "More")]')
             if not more_buttons:
                 more_buttons = driver.find_elements(By.XPATH, '//button[.//span[text()="More"]]')
@@ -303,105 +274,111 @@ def send_connection_with_message(driver, public_id, message, debug=False):
             if more_buttons:
                 try:
                     driver.execute_script("arguments[0].click();", more_buttons[0])
-                    time.sleep(1.5)
-                    
-                    # Find Connect in dropdown menu
-                    menu_connect = driver.find_elements(By.XPATH, '//div[contains(@class, "dropdown")]//span[text()="Connect"]/ancestor::*[self::button or @role="menuitem" or @role="button"]')
-                    if not menu_connect:
-                        menu_connect = driver.find_elements(By.XPATH, '//*[contains(@class, "dropdown")]//*[text()="Connect"]/ancestor::*[1]')
-                    
-                    if menu_connect:
-                        driver.execute_script("arguments[0].click();", menu_connect[0])
+                    time.sleep(1)
+                    menu_msg = driver.find_elements(By.XPATH, '//*[contains(@class, "dropdown")]//*[text()="Message"]/ancestor::*[1]')
+                    if menu_msg:
+                        driver.execute_script("arguments[0].click();", menu_msg[0])
                         time.sleep(1)
-                        return _handle_connect_modal(driver, message)
-                except Exception as e:
-                    pass  # Close dropdown and continue
+                        return _send_message_in_modal(driver, message)
+                except:
+                    pass
         
-        # Method 5: Look for primary action button
-        if not connect_button:
-            buttons = driver.find_elements(By.XPATH, '//div[contains(@class, "profile-action")]//button[contains(@class, "primary")]')
-            for btn in buttons:
-                if 'connect' in btn.text.lower() or 'connect' in (btn.get_attribute('aria-label') or '').lower():
-                    connect_button = btn
-                    break
+        if not msg_button:
+            # Check if we can connect instead
+            connect_btns = driver.find_elements(By.XPATH, '//button[.//span[text()="Connect"]]')
+            if connect_btns:
+                return 'not_connected'
+            return 'no_message_button'
         
-        if not connect_button:
-            # Last check for follow-only profiles
-            if driver.find_elements(By.XPATH, '//button[.//span[text()="Follow"]]'):
-                return 'follow_only'
-            return 'no_connect_button'
-        
-        # Click Connect
+        # Click Message button
         try:
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", connect_button)
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", msg_button)
             time.sleep(0.5)
-            driver.execute_script("arguments[0].click();", connect_button)
+            driver.execute_script("arguments[0].click();", msg_button)
         except Exception as e:
             return f'click_error: {str(e)[:50]}'
-        time.sleep(1)
         
-        return _handle_connect_modal(driver, message)
+        time.sleep(1.5)
+        return _send_message_in_modal(driver, message)
             
     except Exception as e:
         return f'error: {str(e)[:80]}'
 
 
-def _handle_connect_modal(driver, message):
-    """Handle the connection modal - add note with message."""
+def _send_message_in_modal(driver, message):
+    """Type and send message in the message modal/composer."""
     try:
-        time.sleep(1.5)
+        time.sleep(1)
         
-        # Look for "Add a note" button - multiple patterns
-        add_note_btns = driver.find_elements(By.XPATH, '//button[contains(@aria-label, "Add a note")]')
-        if not add_note_btns:
-            add_note_btns = driver.find_elements(By.XPATH, '//button[.//span[text()="Add a note"]]')
-        if not add_note_btns:
-            add_note_btns = driver.find_elements(By.XPATH, '//button[contains(., "Add a note")]')
+        # Find the message input area
+        msg_box = None
         
-        if add_note_btns and message:
-            driver.execute_script("arguments[0].click();", add_note_btns[0])
-            time.sleep(1)
-            
-            # Find textarea - multiple patterns
-            textareas = driver.find_elements(By.XPATH, '//textarea[contains(@name, "message")]')
-            if not textareas:
-                textareas = driver.find_elements(By.XPATH, '//textarea[contains(@id, "custom-message")]')
-            if not textareas:
-                textareas = driver.find_elements(By.TAG_NAME, 'textarea')
-            
-            if textareas:
-                textareas[0].clear()
-                textareas[0].send_keys(message[:300])  # LinkedIn limit
-                time.sleep(0.5)
+        # Method 1: contenteditable div (LinkedIn's rich text editor)
+        msg_boxes = driver.find_elements(By.XPATH, '//div[contains(@class, "msg-form__contenteditable")]')
+        if msg_boxes:
+            msg_box = msg_boxes[0]
         
-        # Find and click Send - multiple patterns
+        # Method 2: Any contenteditable in message form
+        if not msg_box:
+            msg_boxes = driver.find_elements(By.XPATH, '//div[@contenteditable="true" and contains(@class, "msg")]')
+            if msg_boxes:
+                msg_box = msg_boxes[0]
+        
+        # Method 3: Textarea fallback
+        if not msg_box:
+            msg_boxes = driver.find_elements(By.XPATH, '//textarea[contains(@name, "message") or contains(@class, "msg")]')
+            if msg_boxes:
+                msg_box = msg_boxes[0]
+        
+        # Method 4: Any contenteditable div in the modal
+        if not msg_box:
+            msg_boxes = driver.find_elements(By.XPATH, '//div[@contenteditable="true"]')
+            if msg_boxes:
+                msg_box = msg_boxes[-1]  # Usually the last one is the composer
+        
+        if not msg_box:
+            return 'no_message_box'
+        
+        # Click to focus and type message
+        msg_box.click()
+        time.sleep(0.3)
+        msg_box.send_keys(message)
+        time.sleep(0.5)
+        
+        # Find and click Send button
+        send_btn = None
+        
+        # Method 1: Send button with aria-label
         send_btns = driver.find_elements(By.XPATH, '//button[contains(@aria-label, "Send")]')
-        if not send_btns:
-            send_btns = driver.find_elements(By.XPATH, '//button[.//span[text()="Send"]]')
-        if not send_btns:
-            send_btns = driver.find_elements(By.XPATH, '//button[.//span[text()="Send now"]]')
-        if not send_btns:
-            send_btns = driver.find_elements(By.XPATH, '//button[contains(@class, "artdeco-button--primary")][.//span]')
-        
         if send_btns:
-            driver.execute_script("arguments[0].click();", send_btns[0])
-            time.sleep(1)
-            return 'sent'
+            send_btn = send_btns[0]
         
-        return 'modal_no_send'
+        # Method 2: Send button text
+        if not send_btn:
+            send_btns = driver.find_elements(By.XPATH, '//button[.//span[text()="Send"]]')
+            if send_btns:
+                send_btn = send_btns[0]
+        
+        # Method 3: Button with type submit in message form
+        if not send_btn:
+            send_btns = driver.find_elements(By.XPATH, '//form[contains(@class, "msg")]//button[@type="submit"]')
+            if send_btns:
+                send_btn = send_btns[0]
+        
+        if not send_btn:
+            return 'no_send_button'
+        
+        driver.execute_script("arguments[0].click();", send_btn)
+        time.sleep(1)
+        
+        return 'sent'
         
     except Exception as e:
-        try:
-            dismiss = driver.find_elements(By.XPATH, '//button[contains(@aria-label, "Dismiss")]')
-            if dismiss:
-                dismiss[0].click()
-        except:
-            pass
         return f'modal_error: {str(e)[:50]}'
 
 
 def main():
-    parser = argparse.ArgumentParser(description='LinkedIn Outreach - Cold DM via Connection Request')
+    parser = argparse.ArgumentParser(description='LinkedIn Outreach - Send Direct Messages')
     parser.add_argument('--cookie', help='LinkedIn li_at cookie value (preferred)')
     parser.add_argument('--email', help='LinkedIn email (fallback)')
     parser.add_argument('--password', help='LinkedIn password (fallback)')
@@ -428,7 +405,7 @@ def main():
     quota = load_quota()
     
     print("=" * 60)
-    print("🔗 LINKEDIN OUTREACH (Connection + Message)")
+    print("🔗 LINKEDIN OUTREACH (Direct Messages)")
     print("=" * 60)
     print(f"📊 Daily Quota: {quota['sent']}/{DAILY_LIMIT} used, {remaining} remaining")
     print(f"📁 Excel: {args.excel}")
@@ -506,24 +483,21 @@ def main():
             print(f"  🔗 {public_id}")
             
             try:
-                result = send_connection_with_message(driver, public_id, args.message, debug=args.debug)
+                result = send_direct_message(driver, public_id, args.message, debug=args.debug)
             except Exception as e:
                 result = f'browser_error: {str(e)[:50]}'
             
             if result == 'sent':
-                print(f"  ✅ Message sent with connection request!")
+                print(f"  ✅ Message sent!")
                 success_count += 1
                 increment_quota()
                 update_excel_status(excel_path, df, row_index, 'sent', datetime.now().isoformat())
-            elif result == 'already_connected':
-                print(f"  ℹ️ Already connected (can DM directly)")
-                update_excel_status(excel_path, df, row_index, 'connected', '')
-            elif result == 'pending':
-                print(f"  ℹ️ Request already pending")
-                update_excel_status(excel_path, df, row_index, 'pending', '')
-            elif result == 'follow_only':
-                print(f"  ⚠️ Can only follow (no connect option)")
-                update_excel_status(excel_path, df, row_index, 'follow_only', '')
+            elif result == 'not_connected':
+                print(f"  ⚠️ Not connected - can't DM (need to connect first)")
+                update_excel_status(excel_path, df, row_index, 'not_connected', '')
+            elif result == 'session_expired':
+                print(f"  ❌ Session expired - stopping")
+                break
             else:
                 print(f"  ❌ Failed: {result}")
                 failure_count += 1
