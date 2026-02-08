@@ -130,9 +130,21 @@ def setup_driver(headless=True):
     options.add_argument('--disable-web-security')
     options.add_argument('--disable-extensions')
     options.add_argument('--disable-software-rasterizer')
+    # Additional stability options
+    options.add_argument('--disable-features=VizDisplayCompositor')
+    options.add_argument('--disable-accelerated-2d-canvas')
+    options.add_argument('--disable-setuid-sandbox')
+    options.add_argument('--disable-infobars')
+    options.add_argument('--remote-debugging-port=9222')
+    options.add_argument('--log-level=3')  # Suppress most logs
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-    options.add_experimental_option('excludeSwitches', ['enable-automation'])
+    options.add_experimental_option('excludeSwitches', ['enable-automation', 'enable-logging'])
     options.add_experimental_option('useAutomationExtension', False)
+    options.add_experimental_option('prefs', {
+        'profile.default_content_setting_values.notifications': 2,
+        'credentials_enable_service': False,
+        'profile.password_manager_enabled': False
+    })
     
     driver = webdriver.Chrome(options=options)
     driver.set_page_load_timeout(120)  # 2 minutes
@@ -213,7 +225,7 @@ def login_with_password(driver, email, password):
         return False
 
 
-def send_connection_with_message(driver, public_id, message):
+def send_connection_with_message(driver, public_id, message, debug=False):
     """Send connection request with a personalized message (cold DM)."""
     profile_url = f'https://www.linkedin.com/in/{public_id}/'
     
@@ -222,58 +234,101 @@ def send_connection_with_message(driver, public_id, message):
     except Exception as e:
         return f'page_load_error: {str(e)[:50]}'
     
-    time.sleep(random.uniform(3, 5))
+    time.sleep(random.uniform(4, 6))  # Increased wait
+    
+    # DEBUG: Check page state
+    if debug:
+        print(f"  [DEBUG] URL: {driver.current_url[:60]}...")
+        print(f"  [DEBUG] Title: {driver.title[:50]}...")
+    
+    # Check if redirected to login or error
+    if 'login' in driver.current_url or 'authwall' in driver.current_url:
+        return 'session_expired'
+    if 'error' in driver.title.lower() or driver.title == '':
+        # Wait more and retry
+        time.sleep(3)
+        driver.refresh()
+        time.sleep(4)
     
     # Scroll to load content
     try:
         driver.execute_script("window.scrollBy(0, 300)")
     except:
         pass
-    time.sleep(1)
+    time.sleep(1.5)
     
     try:
         connect_button = None
         
-        # Method 1: Direct Connect button with aria-label
-        buttons = driver.find_elements(By.XPATH, '//button[contains(@aria-label, "Invite") and contains(@aria-label, "connect")]')
+        # DEBUG: List all buttons on page
+        if debug:
+            all_btns = driver.find_elements(By.TAG_NAME, 'button')
+            print(f"  [DEBUG] Found {len(all_btns)} buttons on page")
+            for btn in all_btns[:15]:  # First 15 buttons
+                txt = btn.text.strip().replace('\n', ' ')[:40]
+                aria = (btn.get_attribute('aria-label') or '')[:40]
+                print(f"    - Text: '{txt}' | Aria: '{aria}'")
+        
+        # Check if already connected first
+        if driver.find_elements(By.XPATH, '//button[.//span[text()="Message"]]'):
+            return 'already_connected'
+        if driver.find_elements(By.XPATH, '//button[.//span[text()="Pending"]]'):
+            return 'pending'
+        
+        # Method 1: Direct Connect button with aria-label containing "Invite"
+        buttons = driver.find_elements(By.XPATH, '//button[contains(@aria-label, "Invite")]')
         if buttons:
             connect_button = buttons[0]
         
-        # Method 2: Connect button with text
+        # Method 2: Connect button with span text
         if not connect_button:
-            buttons = driver.find_elements(By.XPATH, '//button//span[text()="Connect"]/ancestor::button')
-            if buttons:
-                connect_button = buttons[0]
-                
-        # Method 2b: Connect link/button anywhere on page
-        if not connect_button:
-            buttons = driver.find_elements(By.XPATH, '//*[text()="Connect"]//ancestor::button')
+            buttons = driver.find_elements(By.XPATH, '//button[.//span[text()="Connect"]]')
             if buttons:
                 connect_button = buttons[0]
         
-        # Method 3: Check More menu
+        # Method 3: Any button containing "Connect" text
         if not connect_button:
-            more_buttons = driver.find_elements(By.XPATH, '//button[contains(@aria-label, "More action")]')
+            buttons = driver.find_elements(By.XPATH, '//button[contains(., "Connect")]')
+            for btn in buttons:
+                if 'connect' in btn.text.lower():
+                    connect_button = btn
+                    break
+        
+        # Method 4: Check More menu dropdown
+        if not connect_button:
+            more_buttons = driver.find_elements(By.XPATH, '//button[contains(@aria-label, "More")]')
+            if not more_buttons:
+                more_buttons = driver.find_elements(By.XPATH, '//button[.//span[text()="More"]]')
+            
             if more_buttons:
                 try:
                     driver.execute_script("arguments[0].click();", more_buttons[0])
-                    time.sleep(1)
-                    menu_connect = driver.find_elements(By.XPATH, '//div[contains(@class, "artdeco-dropdown")]//span[text()="Connect"]/ancestor::*[@role="button" or @role="menuitem"]')
+                    time.sleep(1.5)
+                    
+                    # Find Connect in dropdown menu
+                    menu_connect = driver.find_elements(By.XPATH, '//div[contains(@class, "dropdown")]//span[text()="Connect"]/ancestor::*[self::button or @role="menuitem" or @role="button"]')
+                    if not menu_connect:
+                        menu_connect = driver.find_elements(By.XPATH, '//*[contains(@class, "dropdown")]//*[text()="Connect"]/ancestor::*[1]')
+                    
                     if menu_connect:
                         driver.execute_script("arguments[0].click();", menu_connect[0])
                         time.sleep(1)
                         return _handle_connect_modal(driver, message)
-                except:
-                    pass
+                except Exception as e:
+                    pass  # Close dropdown and continue
+        
+        # Method 5: Look for primary action button
+        if not connect_button:
+            buttons = driver.find_elements(By.XPATH, '//div[contains(@class, "profile-action")]//button[contains(@class, "primary")]')
+            for btn in buttons:
+                if 'connect' in btn.text.lower() or 'connect' in (btn.get_attribute('aria-label') or '').lower():
+                    connect_button = btn
+                    break
         
         if not connect_button:
-            # Already connected?
-            if driver.find_elements(By.XPATH, '//button//span[text()="Message"]'):
-                return 'already_connected'
-            if driver.find_elements(By.XPATH, '//button//span[text()="Pending"]'):
-                return 'pending'
-            if driver.find_elements(By.XPATH, '//button//span[text()="Follow"]'):
-                return 'follow_only'  # Can't connect directly
+            # Last check for follow-only profiles
+            if driver.find_elements(By.XPATH, '//button[.//span[text()="Follow"]]'):
+                return 'follow_only'
             return 'no_connect_button'
         
         # Click Connect
@@ -294,28 +349,39 @@ def send_connection_with_message(driver, public_id, message):
 def _handle_connect_modal(driver, message):
     """Handle the connection modal - add note with message."""
     try:
-        time.sleep(1)
+        time.sleep(1.5)
         
-        # Look for "Add a note" button
+        # Look for "Add a note" button - multiple patterns
         add_note_btns = driver.find_elements(By.XPATH, '//button[contains(@aria-label, "Add a note")]')
+        if not add_note_btns:
+            add_note_btns = driver.find_elements(By.XPATH, '//button[.//span[text()="Add a note"]]')
+        if not add_note_btns:
+            add_note_btns = driver.find_elements(By.XPATH, '//button[contains(., "Add a note")]')
         
         if add_note_btns and message:
             driver.execute_script("arguments[0].click();", add_note_btns[0])
-            time.sleep(0.5)
+            time.sleep(1)
             
-            # Find textarea and add message
-            textareas = driver.find_elements(By.XPATH, '//textarea[contains(@name, "message") or contains(@id, "custom-message")]')
+            # Find textarea - multiple patterns
+            textareas = driver.find_elements(By.XPATH, '//textarea[contains(@name, "message")]')
+            if not textareas:
+                textareas = driver.find_elements(By.XPATH, '//textarea[contains(@id, "custom-message")]')
+            if not textareas:
+                textareas = driver.find_elements(By.TAG_NAME, 'textarea')
+            
             if textareas:
                 textareas[0].clear()
                 textareas[0].send_keys(message[:300])  # LinkedIn limit
                 time.sleep(0.5)
         
-        # Find and click Send
+        # Find and click Send - multiple patterns
         send_btns = driver.find_elements(By.XPATH, '//button[contains(@aria-label, "Send")]')
         if not send_btns:
-            send_btns = driver.find_elements(By.XPATH, '//button//span[text()="Send"]/ancestor::button')
+            send_btns = driver.find_elements(By.XPATH, '//button[.//span[text()="Send"]]')
         if not send_btns:
-            send_btns = driver.find_elements(By.XPATH, '//button[contains(@class, "artdeco-button--primary")]')
+            send_btns = driver.find_elements(By.XPATH, '//button[.//span[text()="Send now"]]')
+        if not send_btns:
+            send_btns = driver.find_elements(By.XPATH, '//button[contains(@class, "artdeco-button--primary")][.//span]')
         
         if send_btns:
             driver.execute_script("arguments[0].click();", send_btns[0])
@@ -344,6 +410,7 @@ def main():
     parser.add_argument('--message', default='', help='Message to send (max 300 chars)')
     parser.add_argument('--resume', default='', help='Resume link to include in message')
     parser.add_argument('--headless', action='store_true', help='Run headless')
+    parser.add_argument('--debug', action='store_true', help='Debug mode - show page buttons')
     
     args = parser.parse_args()
     
@@ -439,7 +506,7 @@ def main():
             print(f"  🔗 {public_id}")
             
             try:
-                result = send_connection_with_message(driver, public_id, args.message)
+                result = send_connection_with_message(driver, public_id, args.message, debug=args.debug)
             except Exception as e:
                 result = f'browser_error: {str(e)[:50]}'
             
