@@ -61,7 +61,8 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add inb/linkedin-data.xlsx inb/linkedin_quota.json
+          git add inb/linkedin-data.xlsx
+          [ -f inb/linkedin_quota.json ] && git add inb/linkedin_quota.json || echo "No quota file to add"
           git commit -m "Update LinkedIn status - $(date +%Y-%m-%d)" || echo "No changes to commit"
           git push || echo "No changes to push"
 
