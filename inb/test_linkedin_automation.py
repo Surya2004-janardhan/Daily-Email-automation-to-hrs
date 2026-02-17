@@ -256,7 +256,7 @@ def test_driver_setup(results, headless=True):
             try:
                 driver.quit()
                 results.add_pass("driver cleanup", "successfully closed")
-            except:
+            except Exception:
                 results.add_warning("driver cleanup", "error closing driver")
 
 
@@ -372,7 +372,7 @@ def run_integration_test(results, cookie=None):
         if driver:
             try:
                 driver.quit()
-            except:
+            except Exception:
                 pass
 
 
