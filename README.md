@@ -1,0 +1,168 @@
+# GetJob Automation Suite
+
+This repository automates your job outreach in four parts:
+
+1. Email campaign from Google Sheets contacts.
+2. Delivery verification (bounce/error tracking).
+3. LinkedIn outreach automation.
+4. Daily job hunter that finds resume-aligned fresher roles and emails links.
+
+The goal is simple: save manual effort and keep your applications moving every day.
+
+## What This Project Does
+
+### 1) Email Campaign (`src/index.js`)
+- Reads unsent contacts from Google Sheets.
+- Generates subject/body variants using Groq.
+- Sends emails in batches via Gmail SMTP.
+- Marks sent rows in the sheet.
+
+### 2) Delivery Verification (`scripts/phase5.js`)
+- Checks sent emails and bounce notifications using IMAP.
+- Detects failed deliveries.
+- Writes failure reasons back to Google Sheets.
+- Sends a summary report email.
+
+### 3) LinkedIn Outreach (`inb/linkedin_outreach.py`)
+- Uses LinkedIn cookie auth.
+- Sends connection messages with controlled limits.
+- Tracks status in Excel.
+
+### 4) Daily Job Hunter (`daily-job-hunter/index.js`)
+- Reads company domains from your target sheet.
+- Scrapes careers/job pages aggressively.
+- Filters jobs for:
+  - resume alignment,
+  - fresher-friendly roles,
+  - internship + entry-level full-time.
+- Stops at 10 unique valid jobs (or timeout).
+- Updates the sheet columns:
+  - `Domains`
+  - `Valid Domain`
+  - `scrapped at`
+  - `Total found jobs count`
+  - `Alligned jobs count`
+  - `Email sent with links`
+- Emails the 10 links with one-line job summaries.
+
+## Project Structure
+
+```text
+src/
+  index.js                      # Main email campaign orchestrator
+
+scripts/
+  phase1.js                     # Load unsent rows from Sheets
+  phase2.js                     # Batch preparation
+  phase3.js                     # Send batch emails
+  phase4.js                     # Update sent status in Sheets
+  phase5.js                     # Bounce/error verification
+  llm.js                        # Groq subject/body variation
+
+daily-job-hunter/
+  index.js                      # Daily fresher job scraping + mail
+  README.md
+
+inb/
+  linkedin_outreach.py          # LinkedIn automation
+  linkedin-data.xlsx
+
+.github/workflows/
+  daily-email.yml
+  verify-delivery.yml
+  linkedin-automation.yml
+  daily-job-hunter.yml
+```
+
+## Prerequisites
+
+- Node.js 18+
+- npm
+- Gmail account with App Password enabled
+- Google Cloud service account JSON with Google Sheets access
+- (For LinkedIn flow) Python 3.10+ and required packages
+
+## Environment Setup
+
+Create `.env` at repo root:
+
+```env
+EMAIL_USER=your_gmail@gmail.com
+EMAIL_PASS=your_gmail_app_password
+GROQ_API_KEY=your_groq_key
+```
+
+Optional variables for daily job hunter:
+
+```env
+JOB_SHEET_LINK=https://docs.google.com/spreadsheets/d/.../edit?gid=0#gid=0
+TARGET_JOBS=10
+MAX_RUN_MINUTES=120
+JOB_HUNTER_DRY_RUN=0
+```
+
+Place your Google service account file in root:
+
+```text
+seismic-rarity-468405-j1-cd12fe29c298.json
+```
+
+Share the Google Sheet(s) with the service account email.
+
+## Install
+
+```bash
+npm install
+```
+
+## Local Usage
+
+### Run email campaign
+
+```bash
+npm start
+```
+
+### Verify delivery status
+
+```bash
+npm run verify
+```
+
+### Run daily job hunter manually
+
+```bash
+node daily-job-hunter/index.js
+```
+
+### Run LinkedIn outreach manually
+
+```bash
+cd inb
+pip install selenium pandas openpyxl
+python linkedin_outreach.py --cookie "YOUR_LI_AT_COOKIE" --limit 5
+```
+
+## GitHub Actions Schedules
+
+- `daily-email.yml`: daily email campaign.
+- `verify-delivery.yml`: bounce verification after email run.
+- `linkedin-automation.yml`: LinkedIn outreach automation.
+- `daily-job-hunter.yml`: runs daily at 5:00 AM IST (`30 23 * * *` UTC cron).
+
+All workflows also support manual trigger (`workflow_dispatch`).
+
+## Required GitHub Secrets
+
+- `EMAIL_USER`
+- `EMAIL_PASS`
+- `GROQ_API_KEY`
+- `GOOGLE_SERVICE_ACCOUNT_JSON`
+- `LINKEDIN_COOKIE` (for LinkedIn workflow)
+
+## Notes
+
+- This repo is optimized for your personal outreach process.
+- Keep sending volume within safe limits to reduce spam/rate-limit risk.
+- For testing job hunter without sending email, set `JOB_HUNTER_DRY_RUN=1`.
+
