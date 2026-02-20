@@ -10,6 +10,8 @@ const TARGET_JOBS = Number(process.env.TARGET_JOBS || 10);
 const MAX_RUN_MINUTES = Number(process.env.MAX_RUN_MINUTES || 120);
 const DRY_RUN = process.env.JOB_HUNTER_DRY_RUN === "1";
 const RECIPIENT = "chintalajanardhan2004@gmail.com";
+const FETCH_RETRIES = Number(process.env.JOB_FETCH_RETRIES || 3);
+const FETCH_DELAY_MS = Number(process.env.JOB_FETCH_DELAY_MS || 450);
 
 const REQUIRED_HEADERS = [
   "Domains",
@@ -146,6 +148,12 @@ const NON_INDIA_NEGATIVE = [
   "eu only",
 ];
 
+const USER_AGENTS = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36",
+];
+
 function extractSpreadsheetId(link) {
   const match = link.match(/\/d\/([a-zA-Z0-9-_]+)/);
   if (!match) throw new Error("Invalid Google Sheet link");
@@ -199,21 +207,43 @@ async function loadDomainRows(sheets, spreadsheetId, sheetTitle) {
 }
 
 async function fetchWithTimeout(url, timeoutMs = 10000) {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 JobBot/1.0",
-      },
-      redirect: "follow",
-    });
-    return res;
-  } finally {
-    clearTimeout(t);
+  let lastErr;
+  for (let attempt = 1; attempt <= FETCH_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const ua = USER_AGENTS[(attempt - 1) % USER_AGENTS.length];
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": ua,
+          "Accept-Language": "en-IN,en;q=0.9",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          Connection: "keep-alive",
+          Referer: "https://www.google.com/",
+        },
+        redirect: "follow",
+      });
+
+      // Retry on common anti-bot and transient responses
+      if ([403, 408, 425, 429, 500, 502, 503, 504].includes(res.status)) {
+        lastErr = new Error(`retryable_status_${res.status}`);
+        await sleep(FETCH_DELAY_MS * attempt + Math.floor(Math.random() * 600));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastErr = err;
+      await sleep(FETCH_DELAY_MS * attempt + Math.floor(Math.random() * 600));
+    } finally {
+      clearTimeout(t);
+    }
   }
+  throw lastErr || new Error("fetch_failed");
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeDomain(domain) {
@@ -256,6 +286,27 @@ function extractLinks(html, baseUrl) {
     } catch {}
   }
   return links;
+}
+
+function extractAtsLinksFromHtml(html, baseUrl) {
+  const found = new Set();
+  const atsRegex =
+    /https?:\/\/[^\s"'<>]+?(workdayjobs|greenhouse\.io|lever\.co|smartrecruiters|ashbyhq|ashby)\.[^\s"'<>]*/gi;
+  let m;
+  while ((m = atsRegex.exec(html || "")) !== null) {
+    const n = normalizeUrl(m[0]);
+    if (n) found.add(n);
+  }
+
+  // Also parse anchors because ATS URLs may be relative wrappers.
+  for (const link of extractLinks(html || "", baseUrl)) {
+    const n = normalizeUrl(link.url);
+    if (!n) continue;
+    if (/workdayjobs|greenhouse|lever\.co|smartrecruiters|ashby/i.test(n)) {
+      found.add(n);
+    }
+  }
+  return Array.from(found);
 }
 
 function looksLikeJobUrl(url, text = "") {
@@ -417,6 +468,34 @@ function isLikelyJobPage(url, title, snippet) {
   return positive.some((p) => hay.includes(p));
 }
 
+function parseSitemapUrls(xml) {
+  const urls = [];
+  const locRegex = /<loc>([\s\S]*?)<\/loc>/gi;
+  let m;
+  while ((m = locRegex.exec(xml || "")) !== null) {
+    const raw = stripHtml(m[1] || "");
+    const n = normalizeUrl(raw);
+    if (n) urls.push(n);
+  }
+  return urls;
+}
+
+function isBlockedPageContent(text) {
+  const lc = (text || "").toLowerCase();
+  const blockedSignals = [
+    "access denied",
+    "are you a robot",
+    "captcha",
+    "forbidden",
+    "temporarily unavailable",
+    "request blocked",
+    "security check",
+    "cloudflare",
+    "akamai",
+  ];
+  return blockedSignals.some((s) => lc.includes(s));
+}
+
 function isFresherFriendly(text) {
   const lc = text.toLowerCase();
   if (SENIOR_NEGATIVE.some((k) => lc.includes(k))) return false;
@@ -440,12 +519,33 @@ async function scrapeDomain(domain) {
     `https://${cleanDomain}/careers`,
     `https://${cleanDomain}/career`,
     `https://${cleanDomain}/jobs`,
+    `https://careers.${cleanDomain}`,
+    `https://jobs.${cleanDomain}`,
+    `https://${cleanDomain}/join-us`,
+    `https://${cleanDomain}/careers/jobs`,
     `https://${cleanDomain}`,
   ];
 
   const queue = [...seedUrls];
   const visited = new Set();
   const candidates = new Map();
+
+  // Stage 1: Seed from sitemap endpoints for deeper but targeted discovery.
+  const sitemapUrls = [
+    `https://${cleanDomain}/sitemap.xml`,
+    `https://${cleanDomain}/sitemap_index.xml`,
+  ];
+  for (const sm of sitemapUrls) {
+    try {
+      const smRes = await fetchWithTimeout(sm, 10000);
+      if (!smRes.ok) continue;
+      const xml = await smRes.text();
+      const urls = parseSitemapUrls(xml).filter((u) => looksLikeJobUrl(u, ""));
+      for (const u of urls.slice(0, 120)) {
+        if (!visited.has(u) && !isBlockedNonJobUrl(u, "")) queue.push(u);
+      }
+    } catch {}
+  }
 
   while (queue.length > 0 && visited.size < 40) {
     const url = queue.shift();
@@ -470,9 +570,22 @@ async function scrapeDomain(domain) {
     } catch {
       continue;
     }
+    if (isBlockedPageContent(html)) continue;
 
     const pageTitle = extractTitle(html);
     const links = extractLinks(html, res.url);
+    const atsLinks = extractAtsLinksFromHtml(html, res.url);
+
+    for (const ats of atsLinks) {
+      if (!visited.has(ats) && !isBlockedNonJobUrl(ats, "")) queue.push(ats);
+      if (!candidates.has(ats) && looksLikeJobUrl(ats, "")) {
+        candidates.set(ats, {
+          url: ats,
+          title: pageTitle || "Job Opening",
+          sourcePage: n,
+        });
+      }
+    }
 
     for (const link of links) {
       const norm = normalizeUrl(link.url);
@@ -504,6 +617,7 @@ async function scrapeDomain(domain) {
         queue.push(norm);
       }
     }
+    await sleep(FETCH_DELAY_MS + Math.floor(Math.random() * 400));
   }
 
   const enriched = [];
@@ -515,6 +629,7 @@ async function scrapeDomain(domain) {
       const jobRes = await fetchWithTimeout(item.url, 9000);
       if (jobRes.ok && (jobRes.headers.get("content-type") || "").includes("html")) {
         jobHtml = await jobRes.text();
+        if (isBlockedPageContent(jobHtml)) continue;
         title = extractTitle(jobHtml) || title;
         snippet = stripHtml(jobHtml).slice(0, 900);
       }
