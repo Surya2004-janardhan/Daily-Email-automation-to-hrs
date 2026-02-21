@@ -9,6 +9,7 @@ on:
 jobs:
   job-hunter:
     runs-on: ubuntu-latest
+    timeout-minutes: 150
 
     steps:
       - name: Checkout repository
