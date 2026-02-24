@@ -792,6 +792,7 @@ async function run() {
     let madeProgress = false;
     for (const domainRow of domains) {
       if (selected.size >= TARGET_JOBS) break;
+      if (Date.now() - started >= MAX_RUN_MINUTES * 60 * 1000) break;
       const domain = normalizeDomain(domainRow.domain);
       const now = new Date().toISOString();
 

@@ -12,14 +12,12 @@ async function main() {
     "https://docs.google.com/spreadsheets/d/1bKIeZoQMOmIw9Te_zMSafZOYqUsF3s2MBAqgl7Vjnds/edit?gid=0#gid=0";
 
   // Base subject and body - will be varied by LLM
-  const baseSubject = "Seeking Opportunity in SDE / Full Stack / AI Intern";
+  const baseSubject = "Application for SDE / Full Stack / AI Intern Role";
   const baseBody = `Hi,
 
-I enjoy solving problems and am looking for opportunities to work on real-world projects while growing as an engineer. You can find my resume here for any SDE / Full Stack / AI roles you might have:
+I debug code for fun, so I figured applying here was the next logical step. I am looking for SDE / Full Stack / AI intern roles and would love to contribute to your team.
 
 Resume: ${resumeLink}
-
-Looking forward to contributing to your team.
 
 Thanks & Regards,
 Surya Janardhan
