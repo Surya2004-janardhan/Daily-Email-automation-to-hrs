@@ -9,7 +9,7 @@ async function main() {
   const resumeLink =
     "https://drive.google.com/file/d/1q45pza2gyP6Pf7z4kyQv2yvOY2KZtCZl/view?usp=sharing";
   const sheetLink =
-    "https://docs.google.com/spreadsheets/d/1bKIeZoQMOmIw9Te_zMSafZOYqUsF3s2MBAqgl7Vjnds/edit?gid=0#gid=0";
+    "https://docs.google.com/spreadsheets/d/1bPYyC4wrnSfz8swLO2NGgMigfNo1cSwhhTgPud-5QLE/edit?gid=0#gid=0";
 
   // Base subject and body - will be varied by LLM
   const baseSubject = "Application for SDE / Full Stack / AI Intern Role";
@@ -30,7 +30,9 @@ Surya Janardhan
 
     // Take only first 20 unsent emails for this run (reduced to avoid Sheets quota)
     const unsentEmails = allUnsentEmails.slice(0, 20);
-    console.log(`Processing ${unsentEmails.length} emails this run (max 20 to stay under Sheets quota)`);
+    console.log(
+      `Processing ${unsentEmails.length} emails this run (max 20 to stay under Sheets quota)`,
+    );
 
     if (unsentEmails.length === 0) {
       console.log("No unsent emails found. All done!");
