@@ -3,7 +3,7 @@ name: Verify Email Delivery
 on:
   # Run 25 minutes after daily email campaign (8:25 AM UTC)
   schedule:
-    - cron: "25 8 * * *"
+    # - cron: "25 8 * * *"
 
   workflow_dispatch: # Allow manual triggering
 
