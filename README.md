@@ -11,7 +11,7 @@ This repository automates your job outreach in four parts:
 
 The goal is simple: save manual effort and keep your applications moving every day.
 
-## What This Project Does
+## What This Repo Does
 
 ### 1) Email Campaign (`email-automation/src/index.js`)
 - Reads unsent contacts from Google Sheets.
